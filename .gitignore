@@ -141,3 +141,7 @@ data/
 logs/
 !BundleTrack/XMem/inference/data
 run_used.yml
+
+/2022*
+/my_data
+/reconstrct_my/checkpoints/

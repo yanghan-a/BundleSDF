@@ -19,9 +19,16 @@ from Utils import *
 class LoftrRunner:
   def __init__(self):
     default_cfg['match_coarse']['thr'] = 0.2
+    # indoor_ot was trained with sinkhorn (optimal transport) but the BundleSDF repo
+    # doesn't ship superglue.py, which sinkhorn mode needs. The same backbone weights
+    # also work with dual_softmax at the cost of ~5% recall — acceptable here.
+    weight = f'{code_dir}/BundleTrack/LoFTR/weights/indoor_ot.ckpt'
+    default_cfg['match_coarse']['match_type'] = 'dual_softmax'
     print("default_cfg",default_cfg)
     self.matcher = LoFTR(config=default_cfg)
-    self.matcher.load_state_dict(torch.load(f'{code_dir}/BundleTrack/LoFTR/weights/outdoor_ds.ckpt')['state_dict'])
+    # strict=False to drop coarse_matching.bin_score (a sinkhorn-only learnable param
+    # that lives in indoor_ot weights but has no consumer in dual_softmax mode).
+    self.matcher.load_state_dict(torch.load(weight)['state_dict'], strict=False)
     self.matcher = self.matcher.eval().cuda()
 
 
@@ -40,7 +47,7 @@ class LoftrRunner:
     last_data = {'image0': image0, 'image1': image1}
     logging.info(f"image0: {last_data['image0'].shape}")
 
-    batch_size = 64
+    batch_size = 8   # 4060 Ti 8G can't fit 64 pairs of 400x400 at once; was 64
     ret_keys = ['mkpts0_f','mkpts1_f','mconf','m_bids']
     with torch.cuda.amp.autocast(enabled=True):
       i_b = 0

@@ -14,6 +14,13 @@ code_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(code_dir)
 from segmentation_utils import Segmenter
 
+'''
+python run_custom.py --mode run_video --video_dir my_data/20260503_163946 --out_folder /home/l/BundleSDF/my_data/20260503_163946/results --use_segmenter 0 --use_gui 0 --debug_level 2
+      
+python run_custom.py --mode global_refine --video_dir my_data/20260503_163946 --out_folder /home/l/BundleSDF/my_data/20260503_163946/results
+'''
+
+
 
 def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_folder='/home/bowen/debug/bundlesdf_2022-11-18-15-10-24_milk/', use_segmenter=False, use_gui=False):
   set_seed(0)
@@ -48,8 +55,8 @@ def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_fo
 
   cfg_nerf = yaml.load(open(f"{code_dir}/config.yml",'r'))
   cfg_nerf['continual'] = True
-  cfg_nerf['trunc_start'] = 0.01
-  cfg_nerf['trunc'] = 0.01
+  cfg_nerf['trunc_start'] = 0.003
+  cfg_nerf['trunc'] = 0.003
   cfg_nerf['mesh_resolution'] = 0.005
   cfg_nerf['down_scale_ratio'] = 1
   cfg_nerf['fs_sdf'] = 0.1
@@ -118,18 +125,18 @@ def run_one_video_global_nerf(out_folder='/home/bowen/debug/bundlesdf_scan_coffe
   yaml.dump(cfg_bundletrack, open(cfg_track_dir,'w'))
 
   cfg_nerf = yaml.load(open(f"{out_folder}/config_nerf.yml",'r'))
-  cfg_nerf['n_step'] = 2000
-  cfg_nerf['N_samples'] = 64
+  cfg_nerf['n_step'] = 10000
+  cfg_nerf['N_samples'] = 128
   cfg_nerf['N_samples_around_depth'] = 256
   cfg_nerf['first_frame_weight'] = 1
   cfg_nerf['down_scale_ratio'] = 1
-  cfg_nerf['finest_res'] = 256
+  cfg_nerf['finest_res'] = 512
   cfg_nerf['num_levels'] = 16
-  cfg_nerf['mesh_resolution'] = 0.002
+  cfg_nerf['mesh_resolution'] = 0.001
   cfg_nerf['n_train_image'] = 500
   cfg_nerf['fs_sdf'] = 0.1
   cfg_nerf['frame_features'] = 2
-  cfg_nerf['rgb_weight'] = 100
+  cfg_nerf['rgb_weight'] = 150
 
   cfg_nerf['i_img'] = np.inf
   cfg_nerf['i_mesh'] = cfg_nerf['i_img']
@@ -148,7 +155,7 @@ def run_one_video_global_nerf(out_folder='/home/bowen/debug/bundlesdf_scan_coffe
 
   tracker = BundleSdf(cfg_track_dir=cfg_track_dir, cfg_nerf_dir=cfg_nerf_dir, start_nerf_keyframes=5)
   tracker.cfg_nerf = cfg_nerf
-  tracker.run_global_nerf(reader=reader, get_texture=True, tex_res=512)
+  tracker.run_global_nerf(reader=reader, get_texture=True, tex_res=2048)
   tracker.on_finish()
 
   print(f"Done")

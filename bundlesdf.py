@@ -13,7 +13,13 @@ from tool import *
 code_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(f'{code_dir}/BundleTrack/build')
 import my_cpp
-from gui import *
+try:
+  from gui import *
+except ImportError as _e:
+  # GUI is only needed for --use_gui 1; dearpygui can fail to import on hosts whose
+  # libstdc++.so.6 lacks the GLIBCXX symbols its prebuilt wheel was linked against.
+  # Don't block headless runs on it.
+  print(f"[bundlesdf] GUI disabled (dearpygui import failed: {_e})")
 from BundleTrack.scripts.data_reader import *
 from Utils import *
 from loftr_wrapper import LoftrRunner

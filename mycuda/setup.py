@@ -36,7 +36,8 @@ setup(
         "/usr/include/eigen3",
     ],
     zip_safe=False,
-    # Add build requirements
-    setup_requires=['torch>=2.6.0'],
-    install_requires=['torch>=2.6.0'],
+    # PyTorch 2.0 (FoundationPose env) and 2.6 (BundleSDF native env) both work — what
+    # matters is the cpp_extension API, which has been stable across this range.
+    setup_requires=['torch>=2.0'],
+    install_requires=['torch>=2.0'],
 )

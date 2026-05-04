@@ -11,6 +11,8 @@ import numpy as np
 import os,sys,pdb
 code_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(code_dir)
+# gridencoder.so is built into the mycuda/ parent directory by setup.py, not next to grid.py
+sys.path.append(os.path.dirname(code_dir))
 import torch
 import torch.nn as nn
 from torch.autograd import Function
