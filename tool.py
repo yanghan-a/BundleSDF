@@ -15,14 +15,30 @@ from BundleTrack.scripts.data_reader import *
 import pandas as pd
 
 
-def find_biggest_cluster(pts, eps=0.06, min_samples=1):
+def find_biggest_cluster(pts, eps=0.06, min_samples=1, min_size_ratio=0.05):
+  """保留所有 size >= min_size_ratio * 最大簇 的簇.
+
+  原始实现只保留最大簇,会丢掉物体上和主体在 DBSCAN 距离上断开的部分(典型:
+  视角覆盖不全或 depth 噪声大的角).那块点云本身就和真实物体一样属于物体,
+  必须保留,否则 NeRF 永远训不到那块,重建出 mesh 缺角.
+
+  min_size_ratio=0.05 经验值: 5% 阈值足以保留物体上被切走的角(实测 ~12-15%
+  of main),又能滤掉真正的零星噪声 (< 1% of main). 如果 mask 漏了把桌面/手
+  包进来,这些大簇可能也会被保留 -- 这种情况是 mask 问题,不是这里的责任.
+  """
   dbscan = DBSCAN(eps=eps,min_samples=min_samples,n_jobs=-1)
   dbscan.fit(pts)
   ids, cnts = np.unique(dbscan.labels_, return_counts=True)
-  best_id = ids[cnts.argsort()[-1]]
-  keep_mask = dbscan.labels_==best_id
-  pts_cluster = pts[keep_mask]
-  return pts_cluster, keep_mask
+  # 保留所有 size >= 阈值的簇 (排除 DBSCAN 噪声标签 -1)
+  valid = ids >= 0
+  ids, cnts = ids[valid], cnts[valid]
+  if len(cnts) == 0:
+    keep_mask = np.zeros(len(pts), dtype=bool)
+    return pts[keep_mask], keep_mask
+  threshold = max(cnts.max() * min_size_ratio, 1)
+  keep_ids = ids[cnts >= threshold]
+  keep_mask = np.isin(dbscan.labels_, keep_ids)
+  return pts[keep_mask], keep_mask
 
 
 def compute_translation_scales(pts,max_dim=2,cluster=True, eps=0.06, min_samples=1):

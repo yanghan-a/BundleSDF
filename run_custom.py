@@ -30,7 +30,7 @@ def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_fo
   cfg_bundletrack = yaml.load(open(f"{code_dir}/BundleTrack/config_ho3d.yml",'r'))
   cfg_bundletrack['SPDLOG'] = int(args.debug_level)
   cfg_bundletrack['depth_processing']["percentile"] = 95
-  cfg_bundletrack['erode_mask'] = 3
+  cfg_bundletrack['erode_mask'] = 0
   cfg_bundletrack['debug_dir'] = out_folder+'/'
   cfg_bundletrack['bundle']['max_BA_frames'] = 10
   cfg_bundletrack['bundle']['max_optimized_feature_loss'] = 0.03
@@ -56,7 +56,7 @@ def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_fo
   cfg_nerf = yaml.load(open(f"{code_dir}/config.yml",'r'))
   cfg_nerf['continual'] = True
   cfg_nerf['trunc_start'] = 0.003
-  cfg_nerf['trunc'] = 0.003
+  cfg_nerf['trunc'] = 0.005
   cfg_nerf['mesh_resolution'] = 0.005
   cfg_nerf['down_scale_ratio'] = 1
   cfg_nerf['fs_sdf'] = 0.1
@@ -128,14 +128,14 @@ def run_one_video_global_nerf(out_folder='/home/bowen/debug/bundlesdf_scan_coffe
   cfg_nerf['n_step'] = 10000
   cfg_nerf['N_samples'] = 128
   cfg_nerf['N_samples_around_depth'] = 256
-  cfg_nerf['first_frame_weight'] = 1
+  cfg_nerf['first_frame_weight'] = 5
   cfg_nerf['down_scale_ratio'] = 1
   cfg_nerf['finest_res'] = 512
   cfg_nerf['num_levels'] = 16
   cfg_nerf['mesh_resolution'] = 0.001
   cfg_nerf['n_train_image'] = 500
   cfg_nerf['fs_sdf'] = 0.1
-  cfg_nerf['frame_features'] = 2
+  cfg_nerf['frame_features'] = 0
   cfg_nerf['rgb_weight'] = 150
 
   cfg_nerf['i_img'] = np.inf
@@ -155,7 +155,7 @@ def run_one_video_global_nerf(out_folder='/home/bowen/debug/bundlesdf_scan_coffe
 
   tracker = BundleSdf(cfg_track_dir=cfg_track_dir, cfg_nerf_dir=cfg_nerf_dir, start_nerf_keyframes=5)
   tracker.cfg_nerf = cfg_nerf
-  tracker.run_global_nerf(reader=reader, get_texture=True, tex_res=2048)
+  tracker.run_global_nerf(reader=reader, get_texture=True, tex_res=512)
   tracker.on_finish()
 
   print(f"Done")

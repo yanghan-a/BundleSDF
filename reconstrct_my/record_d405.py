@@ -68,6 +68,15 @@ def parse_args():
     p.add_argument("--depth_max", type=float, default=0.6,
                    help="depths beyond this distance (meters) are zeroed before saving. "
                         "D405 sweet spot ~0.6m. Pass 0 / negative to disable clipping.")
+    # ---- Depth post-processing (closes IR-dropout holes at edges/corners) ----
+    p.add_argument("--no_post_filter", action="store_true",
+                   help="Disable RealSense depth post-processing (raw depth saved).")
+    p.add_argument("--spatial_holes_fill", type=int, default=3,
+                   help="spatial filter holes_fill: 0=off, 1=2px, 2=4px, 3=8px, 4=16px, 5=unlimited")
+    p.add_argument("--hole_fill_mode", type=int, default=1,
+                   help="hole_filling_filter mode: 0=fill_from_left, 1=farest_from_around "
+                        "(recommended for cube corners), 2=nearest_from_around. "
+                        "Pass negative to skip the dedicated hole_filling stage.")
     return p.parse_args()
 
 
@@ -157,9 +166,46 @@ def main():
                   [0, 0, 1]], dtype=np.float64)
     print(f"[d405] color intrinsics:\n{K}")
 
-    # ---- Warm up ----
-    for _ in range(10):
-        pipeline.wait_for_frames()
+    # ---- Depth post-processing chain (official RealSense order) ----
+    # depth -> disparity -> spatial (hole-fill + edge-preserving smooth) -> temporal
+    # -> depth -> hole_filling (final pass, mode=farest_from_around for corners)
+    post_filters = None
+    if not args.no_post_filter:
+        spatial = rs.spatial_filter()
+        spatial.set_option(rs.option.holes_fill, args.spatial_holes_fill)
+        spatial.set_option(rs.option.filter_magnitude, 2)
+        spatial.set_option(rs.option.filter_smooth_alpha, 0.5)
+        spatial.set_option(rs.option.filter_smooth_delta, 20)
+        temporal = rs.temporal_filter()
+        temporal.set_option(rs.option.filter_smooth_alpha, 0.4)
+        temporal.set_option(rs.option.filter_smooth_delta, 20)
+        chain = [rs.disparity_transform(True), spatial, temporal, rs.disparity_transform(False)]
+        if args.hole_fill_mode >= 0:
+            hole_fill = rs.hole_filling_filter()
+            hole_fill.set_option(rs.option.holes_fill, args.hole_fill_mode)
+            chain.append(hole_fill)
+        post_filters = chain
+        print(f"[d405] depth post-processing ON: spatial(holes_fill={args.spatial_holes_fill}) "
+              f"-> temporal -> hole_fill(mode={args.hole_fill_mode if args.hole_fill_mode>=0 else 'off'})")
+    else:
+        print("[d405] depth post-processing OFF (raw depth)")
+
+    def apply_post(depth_frame):
+        if post_filters is None:
+            return depth_frame
+        f = depth_frame
+        for stage in post_filters:
+            f = stage.process(f)
+        return f
+
+    # ---- Warm up (also primes temporal filter convergence) ----
+    print("[d405] warming up sensors + temporal filter...")
+    for _ in range(20):
+        frames = pipeline.wait_for_frames()
+        frames = align.process(frames)
+        df = frames.get_depth_frame()
+        if df:
+            apply_post(df)
 
     # ---- Preview + recording loop ----
     recording = False
@@ -179,17 +225,31 @@ def main():
                 continue
 
             color = np.asanyarray(color_frame.get_data())            # (H,W,3) BGR
-            depth_raw = np.asanyarray(depth_frame.get_data())        # (H,W) z16
-            depth_mm = (depth_raw.astype(np.float32) * depth_scale * 1000.0).astype(np.uint16)
+            depth_raw_z16 = np.asanyarray(depth_frame.get_data())    # (H,W) z16
+            depth_proc_frame = apply_post(depth_frame)
+            depth_proc_z16 = np.asanyarray(depth_proc_frame.get_data())
+
+            depth_mm_raw = (depth_raw_z16.astype(np.float32) * depth_scale * 1000.0).astype(np.uint16)
+            depth_mm = (depth_proc_z16.astype(np.float32) * depth_scale * 1000.0).astype(np.uint16)
             if depth_max_mm > 0:
+                depth_mm_raw[depth_mm_raw > depth_max_mm] = 0
                 depth_mm[depth_mm > depth_max_mm] = 0
 
-            preview = np.hstack([color, colorize_depth(depth_mm, args.depth_preview_max_mm)])
+            # 3-pane preview: color | raw depth | filtered depth (saved version)
+            prev_raw  = colorize_depth(depth_mm_raw, args.depth_preview_max_mm)
+            prev_proc = colorize_depth(depth_mm,     args.depth_preview_max_mm)
+            holes_raw  = int((depth_mm_raw == 0).sum())
+            holes_proc = int((depth_mm == 0).sum())
+            cv2.putText(prev_raw,  f"raw       holes={holes_raw}",
+                        (10, args.height-12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255,255,255), 2)
+            cv2.putText(prev_proc, f"filtered  holes={holes_proc}",
+                        (10, args.height-12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255,255,255), 2)
+            preview = np.hstack([color, prev_raw, prev_proc])
             status = "REC" if recording else "IDLE"
             cv2.putText(preview, f"{status}  frame={frame_idx}  ({frame_idx/args.fps:.1f}s)",
                         (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
                         (0, 0, 255) if recording else (0, 255, 0), 2)
-            cv2.imshow("D405 (color | depth)  r=rec  s=stop  q=quit", preview)
+            cv2.imshow("D405 color | raw depth | filtered depth   r=rec s=stop q=quit", preview)
 
             if recording:
                 cv2.imwrite(os.path.join(rgb_dir, f"{frame_idx:06d}.png"), color)

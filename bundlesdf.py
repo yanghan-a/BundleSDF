@@ -853,14 +853,13 @@ class BundleSdf:
     self.cfg_nerf['sc_factor'] = None
     self.cfg_nerf['translation'] = None
 
-    ######### Reuse normalization
-    files = sorted(glob.glob(f"{self.debug_dir}/**/nerf/config.yml", recursive=True))
-    if len(files)>0:
-      tmp = yaml.load(open(files[-1],'r'))
-      self.cfg_nerf['sc_factor'] = float(tmp['sc_factor'])
-      self.cfg_nerf['translation'] = np.array(tmp['translation'])
-
-    sc_factor,translation,pcd_real_scale, pcd_normalized = compute_scene_bounds(None,glcam_in_obs,self.K,use_mask=True,base_dir=self.cfg_nerf['save_dir'],rgbs=np.array(rgbs),depths=np.array(depths),masks=np.array(masks), cluster=True, eps=0.01, min_samples=5, sc_factor=self.cfg_nerf['sc_factor'], translation_cvcam=self.cfg_nerf['translation'])
+    ######### Force fresh normalization in global_refine — don't reuse the run_video
+    # cluster, which used the original "biggest-cluster-only" logic and may have
+    # dropped the points of an under-covered corner. Recomputing here picks up
+    # the patched find_biggest_cluster (keeps all sufficiently-large clusters).
+    # Use a slightly larger eps so corner sub-clusters still merge with the main
+    # body when possible (was 0.01).
+    sc_factor,translation,pcd_real_scale, pcd_normalized = compute_scene_bounds(None,glcam_in_obs,self.K,use_mask=True,base_dir=self.cfg_nerf['save_dir'],rgbs=np.array(rgbs),depths=np.array(depths),masks=np.array(masks), cluster=True, eps=0.05, min_samples=5, sc_factor=None, translation_cvcam=None)
 
     self.cfg_nerf['sc_factor'] = float(sc_factor)
     self.cfg_nerf['translation'] = translation
