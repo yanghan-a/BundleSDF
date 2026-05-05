@@ -4,7 +4,16 @@ Local SAM2 video segmentation for the D405 -> BundleSDF workflow.
 Reads rgb/*.png, opens an OpenCV window on frame 0 for interactive prompting
 (left-click = positive, right-click = negative, 'r' = reset, space/Enter =
 confirm, q/ESC = abort), then runs SAM2 video predictor to propagate the
-mask through all frames and writes masks/{idx:06d}.png matching rgb names.
+mask through all frames. After the first propagation, an optional review loop
+lets you scrub frames, click corrections on bad ones, and auto re-propagate;
+this matters when the camera reveals new object faces mid-clip (e.g. a cube
+rotating). Masks are written as masks/{idx:06d}.png matching rgb names.
+
+Review keys (after first propagation, unless --no_review is passed):
+    n / -> / d : next frame      p / <- / a : previous frame
+    ] : +10 frames               [ : -10 frames
+    e          : edit current frame (then space/enter commits + auto re-propagate)
+    q / ESC    : finish review and write masks
 
 Directory layout (matches record_d405.py / extract_masks_from_sam2.py):
     --out_dir / {YYYYMMDD_HHMMSS} / rgb/      <- created by record_d405.py
@@ -72,30 +81,56 @@ def parse_args():
                         "the same --stride to run_custom.py for the BundleSDF run.")
     p.add_argument("--vis", action="store_true",
                    help="After propagation, show overlay preview frame-by-frame")
+    p.add_argument("--no_review", action="store_true",
+                   help="Skip the interactive review/refine loop after first propagation. "
+                        "By default, you can scrub frames, click corrections on bad masks, "
+                        "and SAM2 auto re-propagates after each edit.")
     return p.parse_args()
 
 
 # ----------------------------- Interactive prompt -----------------------------
 
-class FirstFramePrompter:
-    """Collect positive/negative clicks on frame 0 with live SAM2 preview."""
+class FramePrompter:
+    """Collect positive/negative clicks on a given frame with live SAM2 preview.
 
-    def __init__(self, predictor, state, frame_bgr, obj_id=1):
+    Works for any frame_idx, not just frame 0. When the user resets, we try to
+    clear that frame's prompts in the SAM2 state; if the API isn't available
+    (older SAM2 builds), local clicks are wiped and the next commit will
+    overwrite the per-frame prompts via add_new_points_or_box.
+    """
+
+    def __init__(self, predictor, state, frame_bgr, frame_idx=0, obj_id=1,
+                 require_points=True):
         self.predictor = predictor
         self.state = state
         self.frame = frame_bgr.copy()
+        self.frame_idx = frame_idx
         self.obj_id = obj_id
+        self.require_points = require_points
         self.points = []   # list[(x, y)]
         self.labels = []   # list[int] 1=fg, 0=bg
         self.current_mask = None
-        self.win = "SAM2 prompt | L=positive  R=negative  r=reset  space=confirm  q=abort"
+        self.win = (f"SAM2 prompt frame#{frame_idx} | "
+                    "L=positive  R=negative  r=reset  space=confirm  q=abort")
+
+    def _clear_prompts_in_state(self):
+        """Best-effort clear of this frame's prompts in SAM2 state."""
+        for name in ("clear_all_prompts_in_frame", "remove_prompts_for_frame"):
+            fn = getattr(self.predictor, name, None)
+            if fn is not None:
+                try:
+                    fn(self.state, self.frame_idx, self.obj_id)
+                    return True
+                except Exception as e:
+                    print(f"[warn] {name} failed: {e}")
+        return False
 
     def _refresh(self):
         if self.points:
             try:
                 _, _, mask_logits = self.predictor.add_new_points_or_box(
                     inference_state=self.state,
-                    frame_idx=0,
+                    frame_idx=self.frame_idx,
                     obj_id=self.obj_id,
                     points=np.array(self.points, dtype=np.float32),
                     labels=np.array(self.labels, dtype=np.int32),
@@ -107,7 +142,7 @@ class FirstFramePrompter:
                 print(f"[warn] SAM2 prompt failed: {e}")
                 self.current_mask = None
         else:
-            self.predictor.reset_state(self.state)
+            self._clear_prompts_in_state()
             self.current_mask = None
 
     def _render(self):
@@ -123,7 +158,9 @@ class FirstFramePrompter:
             cv2.circle(canvas, (int(x), int(y)), 7, (255, 255, 255), 1)
         n_pos = sum(1 for l in self.labels if l == 1)
         n_neg = sum(1 for l in self.labels if l == 0)
-        cv2.putText(canvas, f"+{n_pos}  -{n_neg}   space=confirm  r=reset  q=abort",
+        cv2.putText(canvas,
+                    f"frame {self.frame_idx}   +{n_pos}  -{n_neg}   "
+                    "space=confirm  r=reset  q=abort",
                     (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         return canvas
 
@@ -140,12 +177,13 @@ class FirstFramePrompter:
     def run(self):
         cv2.namedWindow(self.win, cv2.WINDOW_AUTOSIZE)
         cv2.setMouseCallback(self.win, self._on_mouse)
-        print("\nClick the object (left=positive, right=negative). Space/Enter to confirm, q to abort.\n")
+        print(f"\nFrame {self.frame_idx}: click object "
+              "(left=positive, right=negative). Space/Enter to confirm, q to abort.\n")
         while True:
             cv2.imshow(self.win, self._render())
             key = cv2.waitKey(20) & 0xFF
             if key in (ord(' '), 13):     # space or enter
-                if not self.points:
+                if self.require_points and not self.points:
                     print("[warn] add at least one point first")
                     continue
                 cv2.destroyWindow(self.win)
@@ -157,6 +195,92 @@ class FirstFramePrompter:
                 self.points.clear()
                 self.labels.clear()
                 self._refresh()
+
+
+# Backwards-compatible alias for any external callers.
+FirstFramePrompter = FramePrompter
+
+
+# ----------------------------- Review / refine loop -----------------------------
+
+def _propagate_collect(predictor, state, total):
+    """Run propagate_in_video and return {frame_idx: uint8 mask}."""
+    out = {}
+    for frame_idx, _obj_ids, mask_logits in tqdm(
+        predictor.propagate_in_video(state), total=total, desc="propagate"
+    ):
+        m = (mask_logits[0, 0] > 0).cpu().numpy().astype(np.uint8) * 255
+        out[frame_idx] = m
+    return out
+
+
+def review_and_refine(predictor, state, rgb_files, results, device, obj_id=1):
+    """Interactive scrub-through-frames + click-to-fix + auto re-propagate.
+
+    Returns the (possibly updated) results dict. SAM2's `state` is mutated in
+    place when the user commits an edit, so subsequent propagations naturally
+    incorporate every prompted frame.
+    """
+    n = len(rgb_files)
+    cv2.namedWindow("SAM2 review", cv2.WINDOW_AUTOSIZE)
+    print("\n[review] n/->/d=next  p/<-/a=prev  ]=+10  [=-10  e=edit  q/ESC=finish\n")
+
+    cached_rgbs = {}
+
+    def get_rgb(i):
+        if i not in cached_rgbs:
+            cached_rgbs[i] = cv2.imread(str(rgb_files[i]))
+        return cached_rgbs[i]
+
+    def render(i):
+        rgb = get_rgb(i)
+        m = results.get(i)
+        canvas = rgb.copy()
+        if m is not None and m.any():
+            color = np.zeros_like(canvas)
+            color[..., 1] = 255
+            alpha = ((m > 0).astype(np.float32) * 0.45)[..., None]
+            canvas = (canvas * (1 - alpha) + color * alpha).astype(np.uint8)
+        # status bar
+        empty = (m is None) or (not m.any())
+        flag = "EMPTY" if empty else "ok"
+        cv2.putText(canvas, f"[{i+1}/{n}]  {flag}   "
+                    "n/p=nav  ]/[=jump10  e=edit  q=finish",
+                    (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        return canvas
+
+    idx = 0
+    while True:
+        cv2.imshow("SAM2 review", render(idx))
+        key = cv2.waitKey(20) & 0xFF
+        if key == 255:
+            continue
+        if key in (ord('q'), 27):
+            break
+        if key in (ord('n'), ord('d'), 83):           # 83 = right arrow on many builds
+            idx = min(idx + 1, n - 1)
+        elif key in (ord('p'), ord('a'), 81):         # 81 = left arrow
+            idx = max(idx - 1, 0)
+        elif key == ord(']'):
+            idx = min(idx + 10, n - 1)
+        elif key == ord('['):
+            idx = max(idx - 10, 0)
+        elif key == ord('e'):
+            cv2.destroyWindow("SAM2 review")
+            ed = FramePrompter(predictor, state, get_rgb(idx),
+                               frame_idx=idx, obj_id=obj_id, require_points=False)
+            committed = ed.run()
+            if committed and ed.points:
+                print(f"[review] re-propagating with new prompts on frame {idx}...")
+                with torch.inference_mode(), torch.autocast(device, dtype=torch.bfloat16):
+                    results = _propagate_collect(predictor, state, total=n)
+                print("[review] re-propagation done")
+            elif committed:
+                print(f"[review] no points added on frame {idx}, skipping re-propagation")
+            cv2.namedWindow("SAM2 review", cv2.WINDOW_AUTOSIZE)
+        # other keys ignored
+    cv2.destroyWindow("SAM2 review")
+    return results
 
 
 # ----------------------------- Main pipeline -----------------------------
@@ -216,6 +340,12 @@ def main():
     if device != "cuda":
         print("[warn] CUDA not available, running on CPU (very slow)")
     predictor = build_sam2_video_predictor(args.model_cfg, args.ckpt, device=device)
+    # Critical for the review/refine loop: when the user clicks corrections on
+    # an already-tracked frame, store its output as a conditioning frame so
+    # the next propagate_in_video honors it. With the default False, SAM2
+    # silently overwrites the corrected mask in non_cond_frame_outputs during
+    # re-propagation (point_inputs=None branch), and the new clicks are lost.
+    predictor.add_all_frames_to_correct_as_cond = True
 
     # ---- Convert PNG->JPG into a temp dir for SAM2 (subsample by --stride) ----
     with tempfile.TemporaryDirectory(prefix="sam2_jpg_") as tmpdir:
@@ -233,21 +363,21 @@ def main():
 
             # ---- Interactive prompting on frame 0 ----
             frame0 = cv2.imread(str(rgb_files[0]))
-            prompter = FirstFramePrompter(predictor, state, frame0, obj_id=1)
+            prompter = FramePrompter(predictor, state, frame0, frame_idx=0, obj_id=1)
             ok = prompter.run()
             if not ok:
                 print("[abort] user aborted")
                 return
 
-            # ---- Propagate ----
+            # ---- First-pass propagation ----
             print(f"[run] propagating across {n} frames")
-            results = {}
-            for frame_idx, obj_ids, mask_logits in tqdm(
-                predictor.propagate_in_video(state), total=n
-            ):
-                # Single object (obj_id=1), index 0
-                m = (mask_logits[0, 0] > 0).cpu().numpy().astype(np.uint8) * 255
-                results[frame_idx] = m
+            results = _propagate_collect(predictor, state, total=n)
+
+            # ---- Optional review/refine: scrub frames, click corrections,
+            # ---- and auto re-propagate after each commit.
+            if not args.no_review:
+                results = review_and_refine(predictor, state, rgb_files, results,
+                                            device=device, obj_id=1)
 
         # ---- Save masks with original PNG filenames ----
         print(f"[save] writing {len(results)} masks to {mask_dir}")

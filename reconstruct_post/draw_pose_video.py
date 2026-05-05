@@ -5,7 +5,7 @@
 - 输出 pose_vis/*.png 和 pose_vis.mp4
 
 usage:
-  python draw_pose_video.py /home/l/BundleSDF/my_data/20260504_201434/results
+  python ./reconstruct_post/draw_pose_video.py /home/l/BundleSDF/my_data/20260504_201434/results
 """
 import os, sys, glob
 import numpy as np

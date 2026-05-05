@@ -15,7 +15,7 @@ Controls (in preview window):
     # Defaults match FoundationPose track_single.py camera config:
     #   640x480 @ 90fps, color_exposure=5000us, depth_exposure=5000us,
     #   color_gain=80, depth_max=0.6m, auto WB
-    python3 ./reconstrct_my/record_d405.py --max_seconds 30 --color_exposure 5000 --depth_exposure 5000 --color_gain 50 --depth_max 0.6
+    python3 ./reconstruct_my/record_d405.py --max_seconds 25 --color_exposure 5000 --depth_exposure 5000 --color_gain 50 --depth_max 0.6
 """
 import argparse
 import os

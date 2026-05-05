@@ -18,6 +18,9 @@ from segmentation_utils import Segmenter
 python run_custom.py --mode run_video --video_dir my_data/20260503_163946 --out_folder /home/l/BundleSDF/my_data/20260503_163946/results --use_segmenter 0 --use_gui 0 --debug_level 2
       
 python run_custom.py --mode global_refine --video_dir my_data/20260503_163946 --out_folder /home/l/BundleSDF/my_data/20260503_163946/results
+
+# 修改生成目录权限
+! sudo chown -R l:l /home/l/BundleSDF/my_data/20260504_220811_erode_mask3/results && sudo chmod -R u+w /home/l/BundleSDF/my_data/20260504_220811_erode_mask3/results
 '''
 
 
@@ -30,7 +33,7 @@ def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_fo
   cfg_bundletrack = yaml.load(open(f"{code_dir}/BundleTrack/config_ho3d.yml",'r'))
   cfg_bundletrack['SPDLOG'] = int(args.debug_level)
   cfg_bundletrack['depth_processing']["percentile"] = 95
-  cfg_bundletrack['erode_mask'] = 0
+  cfg_bundletrack['erode_mask'] = 3
   cfg_bundletrack['debug_dir'] = out_folder+'/'
   cfg_bundletrack['bundle']['max_BA_frames'] = 10
   cfg_bundletrack['bundle']['max_optimized_feature_loss'] = 0.03
@@ -56,7 +59,7 @@ def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_fo
   cfg_nerf = yaml.load(open(f"{code_dir}/config.yml",'r'))
   cfg_nerf['continual'] = True
   cfg_nerf['trunc_start'] = 0.003
-  cfg_nerf['trunc'] = 0.005
+  cfg_nerf['trunc'] = 0.003
   cfg_nerf['mesh_resolution'] = 0.005
   cfg_nerf['down_scale_ratio'] = 1
   cfg_nerf['fs_sdf'] = 0.1
