@@ -23,7 +23,14 @@ python run_custom.py --mode global_refine --video_dir my_data/20260503_163946 --
 ! sudo chown -R l:l /home/l/BundleSDF/my_data/20260504_220811_erode_mask3/results && sudo chmod -R u+w /home/l/BundleSDF/my_data/20260504_220811_erode_mask3/results
 '''
 
+# 服务器跑
+# python3 run_custom.py --mode run_video --video_dir my_data/20260505_220349/ --out_folder /root/wuji_ws_0/BundleSDF/my_data/20260505_220349/results --use_segmenter 0 --use_gui 0 --debug_level 2
 
+'''
+export LD_LIBRARY_PATH=/root/wuji_ws_0/BundleSDF/BundleTrack/build:$LD_LIBRARY_PATH 
+python3 run_custom.py --mode run_video --video_dir my_data/20260505_220349/ --out_folder /root/wuji_ws_0/BundleSDF/my_data/20260505_220349/results --use_segmenter 0 --use_gui 0 --debug_level 2
+python3 run_custom.py --mode global_refine --video_dir my_data/20260505_220349/ --out_folder /root/wuji_ws_0/BundleSDF/my_data/20260505_220349/results/
+'''
 
 def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_folder='/home/bowen/debug/bundlesdf_2022-11-18-15-10-24_milk/', use_segmenter=False, use_gui=False):
   set_seed(0)
@@ -32,6 +39,7 @@ def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_fo
 
   cfg_bundletrack = yaml.load(open(f"{code_dir}/BundleTrack/config_ho3d.yml",'r'))
   cfg_bundletrack['SPDLOG'] = int(args.debug_level)
+  cfg_bundletrack['depth_processing']["zfar"] = 1
   cfg_bundletrack['depth_processing']["percentile"] = 95
   cfg_bundletrack['erode_mask'] = 3
   cfg_bundletrack['debug_dir'] = out_folder+'/'
@@ -58,8 +66,8 @@ def run_one_video(video_dir='/home/bowen/debug/2022-11-18-15-10-24_milk', out_fo
 
   cfg_nerf = yaml.load(open(f"{code_dir}/config.yml",'r'))
   cfg_nerf['continual'] = True
-  cfg_nerf['trunc_start'] = 0.003
-  cfg_nerf['trunc'] = 0.003
+  cfg_nerf['trunc_start'] = 0.01
+  cfg_nerf['trunc'] = 0.01
   cfg_nerf['mesh_resolution'] = 0.005
   cfg_nerf['down_scale_ratio'] = 1
   cfg_nerf['fs_sdf'] = 0.1
@@ -128,18 +136,18 @@ def run_one_video_global_nerf(out_folder='/home/bowen/debug/bundlesdf_scan_coffe
   yaml.dump(cfg_bundletrack, open(cfg_track_dir,'w'))
 
   cfg_nerf = yaml.load(open(f"{out_folder}/config_nerf.yml",'r'))
-  cfg_nerf['n_step'] = 10000
-  cfg_nerf['N_samples'] = 128
+  cfg_nerf['n_step'] = 2000
+  cfg_nerf['N_samples'] = 64
   cfg_nerf['N_samples_around_depth'] = 256
-  cfg_nerf['first_frame_weight'] = 5
+  cfg_nerf['first_frame_weight'] = 1
   cfg_nerf['down_scale_ratio'] = 1
-  cfg_nerf['finest_res'] = 512
+  cfg_nerf['finest_res'] = 256
   cfg_nerf['num_levels'] = 16
-  cfg_nerf['mesh_resolution'] = 0.001
+  cfg_nerf['mesh_resolution'] = 0.002
   cfg_nerf['n_train_image'] = 500
   cfg_nerf['fs_sdf'] = 0.1
-  cfg_nerf['frame_features'] = 0
-  cfg_nerf['rgb_weight'] = 150
+  cfg_nerf['frame_features'] = 2
+  cfg_nerf['rgb_weight'] = 100
 
   cfg_nerf['i_img'] = np.inf
   cfg_nerf['i_mesh'] = cfg_nerf['i_img']
@@ -219,7 +227,7 @@ def draw_pose():
 
 if __name__=="__main__":
   parser = argparse.ArgumentParser()
-  parser.add_argument('--mode', type=str, default="run_video", help="run_video/global_refine/draw_pose")
+  parser.add_argument('--mode', type=str, default="run_video", help="run_video/global_refine/get_mesh/draw_pose")
   parser.add_argument('--video_dir', type=str, default="/home/bowen/debug/2022-11-18-15-10-24_milk/")
   parser.add_argument('--out_folder', type=str, default="/home/bowen/debug/bundlesdf_2022-11-18-15-10-24_milk")
   parser.add_argument('--use_segmenter', type=int, default=0)
@@ -232,6 +240,8 @@ if __name__=="__main__":
     run_one_video(video_dir=args.video_dir, out_folder=args.out_folder, use_segmenter=args.use_segmenter, use_gui=args.use_gui)
   elif args.mode=='global_refine':
     run_one_video_global_nerf(out_folder=args.out_folder)
+  elif args.mode=='get_mesh':
+    postprocess_mesh(out_folder=args.out_folder)
   elif args.mode=='draw_pose':
     draw_pose()
   else:

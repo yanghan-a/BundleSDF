@@ -47,7 +47,7 @@ class LoftrRunner:
     last_data = {'image0': image0, 'image1': image1}
     logging.info(f"image0: {last_data['image0'].shape}")
 
-    batch_size = 8   # 4060 Ti 8G can't fit 64 pairs of 400x400 at once; was 64
+    batch_size = 64
     ret_keys = ['mkpts0_f','mkpts1_f','mconf','m_bids']
     with torch.cuda.amp.autocast(enabled=True):
       i_b = 0

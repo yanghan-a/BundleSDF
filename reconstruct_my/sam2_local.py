@@ -29,6 +29,8 @@ Run inside the conda env created by setup_sam2.sh:
     conda activate sam2
     python sam2_local.py                    # auto-pick latest run
     python sam2_local.py --run 20260503_175423
+
+    python ./reconstruct_my/sam2_local.py --run /home/l/BundleSDF/my_data/20260505_150000_yida/
 """
 import argparse
 import os

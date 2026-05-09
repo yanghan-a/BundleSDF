@@ -138,11 +138,16 @@ RUN cd / && \
 
 # Install OpenCV
 RUN cd / && \
-    git clone --depth 1 --branch ${OPENCV_VERSION_MAJOR}.${OPENCV_VERSION_MINOR}.${OPENCV_VERSION_PATCH} https://github.com/opencv/opencv && \
-    git clone --depth 1 --branch ${OPENCV_VERSION_MAJOR}.${OPENCV_VERSION_MINOR}.${OPENCV_VERSION_PATCH} https://github.com/opencv/opencv_contrib && \
+    git clone --depth 1 --branch ${OPENCV_VERSION_MAJOR}.${OPENCV_VERSION_MINOR}.${OPENCV_VERSION_PATCH} https://gh-proxy.com/https://github.com/opencv/opencv && \
+    git clone --depth 1 --branch ${OPENCV_VERSION_MAJOR}.${OPENCV_VERSION_MINOR}.${OPENCV_VERSION_PATCH} https://gh-proxy.com/https://github.com/opencv/opencv_contrib && \
     mkdir -p /opencv/build && \
     cd /opencv/build && \
     cmake ..  -DCMAKE_BUILD_TYPE=Release \
+        -DWITH_IPP=OFF \
+        -DBUILD_IPP_IW=OFF \
+        -DBUILD_opencv_face=OFF \
+        -DBUILD_opencv_gapi=OFF \
+        -DBUILD_opencv_dnn_objdetect=OFF \
         -DBUILD_CUDA_STUBS=OFF \
         -DBUILD_DOCS=OFF \
         -DWITH_MATLAB=OFF \
@@ -185,7 +190,7 @@ RUN cd / && \
 
 # Install PCL
 RUN cd / && \
-    git clone --depth 1 --branch pcl-${PCL_VERSION_MAJOR}.${PCL_VERSION_MINOR}.${PCL_VERSION_PATCH} https://github.com/PointCloudLibrary/pcl && \
+    git clone --depth 1 --branch pcl-${PCL_VERSION_MAJOR}.${PCL_VERSION_MINOR}.${PCL_VERSION_PATCH} https://gh-proxy.com/https://github.com/PointCloudLibrary/pcl && \
     mkdir -p /pcl/build && \
     cd /pcl/build && \
     cmake .. \
@@ -210,7 +215,7 @@ RUN cd / && \
 
 # Install Pybind11
 RUN cd / && \
-    git clone --depth 1 --branch v${PYBIND11_VERSION_MAJOR}.${PYBIND11_VERSION_MINOR}.${PYBIND11_VERSION_PATCH} https://github.com/pybind/pybind11 && \
+    git clone --depth 1 --branch v${PYBIND11_VERSION_MAJOR}.${PYBIND11_VERSION_MINOR}.${PYBIND11_VERSION_PATCH} https://gh-proxy.com/https://github.com/pybind/pybind11 && \
     mkdir -p /pybind11/build && \
     cd /pybind11/build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DPYBIND11_INSTALL=ON -DPYBIND11_TEST=OFF && \
@@ -221,7 +226,7 @@ RUN cd / && \
 
 # Install YAML-CPP
 RUN cd / && \
-    git clone --depth 1 --branch ${YAML_CPP_VERSION_MAJOR}.${YAML_CPP_VERSION_MINOR}.${YAML_CPP_VERSION_PATCH} https://github.com/jbeder/yaml-cpp && \
+    git clone --depth 1 --branch ${YAML_CPP_VERSION_MAJOR}.${YAML_CPP_VERSION_MINOR}.${YAML_CPP_VERSION_PATCH} https://gh-proxy.com/https://github.com/jbeder/yaml-cpp && \
     mkdir -p /yaml-cpp/build && \
     cd /yaml-cpp/build && \
     cmake .. \
@@ -238,12 +243,17 @@ RUN cd / && \
 
 SHELL ["/bin/bash", "--login", "-c"]
 
+# Use Tsinghua PyPI mirror for fast downloads from China; nvidia-kaolin still uses its own -f URL
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+    PIP_DEFAULT_TIMEOUT=300 \
+    PIP_RETRIES=5
+
 # Install Python packages directly with system Python to add additional conda env since docker should provide isolated environment
 RUN apt-get remove -y python3-blinker || true && \
     pip3 install --upgrade pip setuptools wheel && \
     pip3 install torch==2.6.0 torchvision==0.21.0 torchaudio && \
     pip3 install --no-cache-dir kaolin==0.17.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.5.1_cu124.html && \
-    pip3 install "git+https://github.com/facebookresearch/pytorch3d.git@stable" && \
+    pip3 install "git+https://gh-proxy.com/https://github.com/facebookresearch/pytorch3d.git@stable" && \
     pip3 install --break-system-packages --force-reinstall blinker && \
     pip3 install trimesh wandb matplotlib imageio tqdm open3d ruamel.yaml sacred kornia pymongo pyrender jupyterlab ninja "Cython>=0.29.37" yacs && \
     pip3 install scipy scikit-learn

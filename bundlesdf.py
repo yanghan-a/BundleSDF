@@ -218,6 +218,10 @@ def run_gui(gui_dict, gui_lock):
 
 
 def run_nerf(p_dict, kf_to_nerf_list, lock, cfg_nerf, translation, sc_factor, start_nerf_keyframes, use_gui, gui_lock, gui_dict, debug_dir):
+  _nerf_gpu = os.environ.get('BUNDLESDF_NERF_GPU', '0')
+  if _nerf_gpu != '0':
+    logging.info(f'NeRF subprocess running on physical GPU {_nerf_gpu} (parent set CUDA_VISIBLE_DEVICES, this process sees it as cuda:0)')
+
   vox_res = 0.01
   nerf_num_frames = 0
   cnt_nerf = -1
@@ -463,8 +467,17 @@ class BundleSdf:
     self.p_dict['nerf_num_frames'] = 0
 
     self.p_dict['SPDLOG'] = self.SPDLOG
+    nerf_gpu = os.environ.get('BUNDLESDF_NERF_GPU', '0')
+    old_cvd = os.environ.get('CUDA_VISIBLE_DEVICES')
+    if nerf_gpu != '0':
+      os.environ['CUDA_VISIBLE_DEVICES'] = nerf_gpu
     self.p_nerf = multiprocessing.Process(target=run_nerf, args=(self.p_dict, self.kf_to_nerf_list, self.lock, self.cfg_nerf, self.translation, self.sc_factor, start_nerf_keyframes, self.use_gui, self.gui_lock, self.gui_dict, self.debug_dir))
     self.p_nerf.start()
+    if nerf_gpu != '0':
+      if old_cvd is None:
+        os.environ.pop('CUDA_VISIBLE_DEVICES', None)
+      else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = old_cvd
 
     # self.p_dict = {}
     # self.lock = threading.Lock()
